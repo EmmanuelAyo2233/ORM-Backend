@@ -224,8 +224,8 @@ exports.updateUser = async (req, res) => {
     res.status(200).json({ message: 'User updated successfully.' });
   } catch (error) {
     await connection.rollback();
-    console.error('[User] Update user transaction error:', error.message);
-    res.status(500).json({ error: 'Server error during user profile modification.' });
+    console.error('[User] Update user transaction error:', error.code, error.sqlMessage || error.message);
+    res.status(500).json({ error: 'Server error during user profile modification.', detail: error.message });
   } finally {
     connection.release();
   }

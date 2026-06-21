@@ -41,11 +41,24 @@ const pool = mysql.createPool(connectionConfig);
     // Ensure avatar column exists in users table
     try {
       await connection.query('ALTER TABLE users ADD COLUMN avatar LONGTEXT NULL');
-      console.log('[Database] Successfully verified/added avatar column to users table.');
+      console.log('[Database] avatar column added to users table.');
     } catch (err) {
-      // Ignore error if column already exists
+      if (err.code === 'ER_DUP_FIELDNAME') {
+        console.log('[Database] avatar column already exists in users table — OK.');
+      } else {
+        console.error('[Database] Failed to add avatar column:', err.code, err.message);
+      }
     }
-    
+
+    // Increase max_allowed_packet for base64 image uploads (session-level)
+    try {
+      await connection.query("SET GLOBAL max_allowed_packet = 67108864"); // 64MB
+      console.log('[Database] max_allowed_packet set to 64MB.');
+    } catch (err) {
+      // May not have SUPER privilege on managed DB — that's OK
+      console.warn('[Database] Could not set max_allowed_packet (may not have SUPER privilege):', err.message);
+    }
+
     connection.release();
   } catch (error) {
     console.error('[Database] Error connecting to the database:', error.message);

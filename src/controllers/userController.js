@@ -88,7 +88,7 @@ exports.createUser = async (req, res) => {
 // Retrieve all user accounts (Admin only)
 exports.getUsers = async (req, res) => {
   const { role, username } = req.query;
-  let sql = 'SELECT userID, username, role, createdAt FROM users WHERE 1=1';
+  let sql = 'SELECT userID, username, role, avatar, createdAt FROM users WHERE 1=1';
   const params = [];
 
   if (role) {
@@ -131,7 +131,7 @@ exports.getUsers = async (req, res) => {
 // Update user profile (Admin only)
 exports.updateUser = async (req, res) => {
   const { id } = req.params;
-  let { username, password, name, gender, class: studentClass, DOB, email, studentID, assignments } = req.body;
+  let { username, password, name, gender, class: studentClass, DOB, email, studentID, assignments, avatar } = req.body;
 
   // Security check: Only Admin can update other users. Non-Admins can only update their own profile.
   if (req.user.role !== 'Admin' && req.user.userID !== parseInt(id)) {
@@ -170,6 +170,10 @@ exports.updateUser = async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
       await connection.query('UPDATE users SET password = ? WHERE userID = ?', [hashedPassword, id]);
+    }
+
+    if (avatar !== undefined) {
+      await connection.query('UPDATE users SET avatar = ? WHERE userID = ?', [avatar, id]);
     }
 
     // 2. Update role-specific profile details
@@ -277,6 +281,7 @@ exports.getStudentsList = async (req, res) => {
         s.gender, 
         s.DOB, 
         u.username as email, 
+        u.avatar as avatar,
         u.createdAt as created_at
       FROM students s
       JOIN users u ON s.userID = u.userID
@@ -298,6 +303,7 @@ exports.getTeachersList = async (req, res) => {
         u.userID,
         COALESCE(t.name, u.username) as name,
         u.username as email,
+        u.avatar as avatar,
         u.createdAt as created_at,
         GROUP_CONCAT(DISTINCT s.subjectName ORDER BY s.subjectName SEPARATOR ', ') as subjects,
         GROUP_CONCAT(DISTINCT ta.class ORDER BY ta.class SEPARATOR ', ') as classes
@@ -327,6 +333,7 @@ exports.getParentsList = async (req, res) => {
         p.name, 
         p.email, 
         p.studentID, 
+        u.avatar as avatar,
         u.createdAt as created_at
       FROM parents p
       LEFT JOIN users u ON p.userID = u.userID

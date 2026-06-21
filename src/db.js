@@ -32,11 +32,20 @@ if (process.env.DB_SSL_CA) {
 
 const pool = mysql.createPool(connectionConfig);
 
-// Test database connection
+// Test database connection and ensure schema updates
 (async () => {
   try {
     const connection = await pool.getConnection();
     console.log('[Database] Connection pool initialized successfully.');
+    
+    // Ensure avatar column exists in users table
+    try {
+      await connection.query('ALTER TABLE users ADD COLUMN avatar LONGTEXT NULL');
+      console.log('[Database] Successfully verified/added avatar column to users table.');
+    } catch (err) {
+      // Ignore error if column already exists
+    }
+    
     connection.release();
   } catch (error) {
     console.error('[Database] Error connecting to the database:', error.message);

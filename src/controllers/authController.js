@@ -44,7 +44,8 @@ exports.login = async (req, res) => {
       user: {
         userID: user.userID,
         username: user.username,
-        role: user.role
+        role: user.role,
+        avatar: user.avatar
       }
     });
   } catch (error) {
@@ -55,7 +56,7 @@ exports.login = async (req, res) => {
 
 exports.getProfile = async (req, res) => {
   try {
-    const [users] = await db.query('SELECT userID, username, role FROM users WHERE userID = ?', [req.user.userID]);
+    const [users] = await db.query('SELECT userID, username, role, avatar FROM users WHERE userID = ?', [req.user.userID]);
     if (users.length === 0) {
       return res.status(404).json({ error: 'User profile not found.' });
     }

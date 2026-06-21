@@ -335,11 +335,18 @@ exports.submitScoresBulk = async (req, res) => {
       const exam = parseFloat(exam_score || 0);
       const session_id = `${session}-${term}`;
 
-      // 1. Resolve studentID if student_id is userID
-      const [studentRow] = await connection.query(
-        'SELECT studentID FROM students WHERE studentID = ? OR userID = ?',
-        [student_id, student_id]
+      // 1. Resolve studentID: check if student_id is a valid studentID first
+      let [studentRow] = await connection.query(
+        'SELECT studentID FROM students WHERE studentID = ?',
+        [student_id]
       );
+      // If not found, try to resolve via userID
+      if (studentRow.length === 0) {
+        [studentRow] = await connection.query(
+          'SELECT studentID FROM students WHERE userID = ?',
+          [student_id]
+        );
+      }
       if (studentRow.length === 0) {
         await connection.rollback();
         return res.status(404).json({ error: `Student with ID ${student_id} not found.` });

@@ -98,7 +98,8 @@ exports.getStudentsByClass = async (req, res) => {
         r.exam_score,
         r.total,
         r.grade,
-        r.remark
+        r.remark,
+        r.status
       FROM students s
       LEFT JOIN results r ON s.studentID = r.studentID 
         AND r.subjectID = ? 
@@ -118,7 +119,8 @@ exports.getStudentsByClass = async (req, res) => {
       exam_score: student.exam_score !== null ? parseFloat(student.exam_score) : 0,
       total: student.total !== null ? parseFloat(student.total) : 0,
       grade: student.grade || '',
-      remark: student.remark || ''
+      remark: student.remark || '',
+      status: student.status || null
     }));
 
     res.status(200).json(formatted);
@@ -543,12 +545,39 @@ exports.getMyResults = async (req, res) => {
 
 exports.getChildResults = async (req, res) => {
   const userID = req.user.userID;
+  const requestedStudentID = req.query.studentID ? parseInt(req.query.studentID) : null;
   try {
-    const [parentRow] = await db.query('SELECT studentID FROM parents WHERE userID = ?', [userID]);
-    if (parentRow.length === 0 || !parentRow[0].studentID) {
+    // Get parent record
+    const [parentRow] = await db.query('SELECT parentID FROM parents WHERE userID = ?', [userID]);
+    if (parentRow.length === 0) {
       return res.status(200).json([]);
     }
-    const studentID = parentRow[0].studentID;
+    const parentID = parentRow[0].parentID;
+
+    // Get all children linked to this parent
+    const [linkedChildren] = await db.query(
+      'SELECT studentID FROM parent_students WHERE parentID = ?',
+      [parentID]
+    );
+
+    // Also check legacy parents.studentID column for backward compatibility
+    const [legacyParent] = await db.query('SELECT studentID FROM parents WHERE parentID = ?', [parentID]);
+    const legacyID = legacyParent[0]?.studentID;
+
+    const linkedIDs = linkedChildren.map(c => c.studentID);
+    if (legacyID && !linkedIDs.includes(legacyID)) linkedIDs.push(legacyID);
+
+    if (linkedIDs.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Validate or pick target studentID
+    let studentID;
+    if (requestedStudentID && linkedIDs.includes(requestedStudentID)) {
+      studentID = requestedStudentID;
+    } else {
+      studentID = linkedIDs[0]; // default to first child
+    }
 
     const [studentRow] = await db.query('SELECT class FROM students WHERE studentID = ?', [studentID]);
     if (studentRow.length === 0) {

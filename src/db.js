@@ -50,6 +50,33 @@ const pool = mysql.createPool(connectionConfig);
       }
     }
 
+    // Ensure parent_students junction table exists for many-to-many parent-student links
+    try {
+      await connection.query(`
+        CREATE TABLE IF NOT EXISTS parent_students (
+          parentID INT NOT NULL,
+          studentID INT NOT NULL,
+          PRIMARY KEY (parentID, studentID),
+          FOREIGN KEY (parentID) REFERENCES parents(parentID) ON DELETE CASCADE,
+          FOREIGN KEY (studentID) REFERENCES students(studentID) ON DELETE CASCADE
+        )
+      `);
+      console.log('[Database] parent_students table ensured.');
+    } catch (err) {
+      console.error('[Database] Failed to create parent_students table:', err.code, err.message);
+    }
+
+    // Migrate legacy parents.studentID into parent_students junction table
+    try {
+      await connection.query(`
+        INSERT IGNORE INTO parent_students (parentID, studentID)
+        SELECT parentID, studentID FROM parents WHERE studentID IS NOT NULL
+      `);
+      console.log('[Database] Migrated legacy parent-student links into parent_students table.');
+    } catch (err) {
+      console.error('[Database] Migration of legacy parent-student links failed:', err.message);
+    }
+
     // Increase max_allowed_packet for base64 image uploads (session-level)
     try {
       await connection.query("SET GLOBAL max_allowed_packet = 67108864"); // 64MB

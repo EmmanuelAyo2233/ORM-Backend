@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 
 // Create user account (Admin only)
 exports.createUser = async (req, res) => {
-  let { username, password, role, name, gender, class: studentClass, DOB, email, studentID } = req.body;
+  let { username, password, role, name, gender, class: studentClass, DOB, email, studentID, studentIDs } = req.body;
 
   if (!username && email) {
     username = email;
@@ -56,10 +56,25 @@ exports.createUser = async (req, res) => {
         [name, gender || null, studentClass, DOB || null, newUserID]
       );
     } else if (role === 'Parent') {
-      await connection.query(
+      // Resolve list of children: prefer studentIDs array, fallback to single studentID
+      const childIDs = Array.isArray(studentIDs) && studentIDs.length > 0
+        ? studentIDs.map(id => parseInt(id)).filter(Boolean)
+        : (studentID ? [parseInt(studentID)] : []);
+      const primaryChildID = childIDs.length > 0 ? childIDs[0] : null;
+
+      const [parentResult] = await connection.query(
         'INSERT INTO parents (name, email, userID, studentID) VALUES (?, ?, ?, ?)',
-        [name, email || null, newUserID, studentID || null]
+        [name, email || null, newUserID, primaryChildID]
       );
+      const newParentID = parentResult.insertId;
+
+      // Insert all child links into parent_students junction table
+      for (const cid of childIDs) {
+        await connection.query(
+          'INSERT IGNORE INTO parent_students (parentID, studentID) VALUES (?, ?)',
+          [newParentID, cid]
+        );
+      }
     } else if (role === 'Teacher') {
       await connection.query(
         'INSERT INTO teachers (name, userID) VALUES (?, ?)',
@@ -131,7 +146,7 @@ exports.getUsers = async (req, res) => {
 // Update user profile (Admin only)
 exports.updateUser = async (req, res) => {
   const { id } = req.params;
-  let { username, password, name, gender, class: studentClass, DOB, email, studentID, assignments, avatar } = req.body;
+  let { username, password, name, gender, class: studentClass, DOB, email, studentID, studentIDs, assignments, avatar } = req.body;
 
   // Security check: Only Admin can update other users. Non-Admins can only update their own profile.
   if (req.user.role !== 'Admin' && req.user.userID !== parseInt(id)) {
@@ -194,11 +209,41 @@ exports.updateUser = async (req, res) => {
       const values = [];
       if (name) { updates.push('name = ?'); values.push(name); }
       if (email) { updates.push('email = ?'); values.push(email); }
-      if (studentID !== undefined) { updates.push('studentID = ?'); values.push(studentID); }
+
+      // Resolve list of children
+      let childIDs = [];
+      if (Array.isArray(studentIDs) && studentIDs.length > 0) {
+        childIDs = studentIDs.map(cid => parseInt(cid)).filter(Boolean);
+      } else if (studentID !== undefined && studentID !== null && studentID !== '') {
+        childIDs = [parseInt(studentID)];
+      }
+
+      if (childIDs.length > 0) {
+        updates.push('studentID = ?');
+        values.push(childIDs[0]); // keep legacy single column in sync
+      } else if (studentID === '' || studentID === null) {
+        updates.push('studentID = ?');
+        values.push(null);
+      }
 
       if (updates.length > 0) {
         values.push(id);
         await connection.query(`UPDATE parents SET ${updates.join(', ')} WHERE userID = ?`, values);
+      }
+
+      // Rebuild parent_students junction table links
+      if (studentIDs !== undefined || studentID !== undefined) {
+        const [parentRow] = await connection.query('SELECT parentID FROM parents WHERE userID = ?', [id]);
+        if (parentRow.length > 0) {
+          const parentID = parentRow[0].parentID;
+          await connection.query('DELETE FROM parent_students WHERE parentID = ?', [parentID]);
+          for (const cid of childIDs) {
+            await connection.query(
+              'INSERT IGNORE INTO parent_students (parentID, studentID) VALUES (?, ?)',
+              [parentID, cid]
+            );
+          }
+        }
       }
     } else if (user.role === 'Teacher') {
       if (name) {
@@ -334,13 +379,21 @@ exports.getParentsList = async (req, res) => {
         p.email, 
         p.studentID, 
         u.avatar as avatar,
-        u.createdAt as created_at
+        u.createdAt as created_at,
+        GROUP_CONCAT(DISTINCT ps.studentID ORDER BY ps.studentID SEPARATOR ',') as studentIDs
       FROM parents p
       LEFT JOIN users u ON p.userID = u.userID
+      LEFT JOIN parent_students ps ON p.parentID = ps.parentID
+      GROUP BY p.userID, p.parentID, p.name, p.email, p.studentID, u.avatar, u.createdAt
       ORDER BY p.name ASC
     `;
     const [rows] = await db.query(query);
-    res.status(200).json(rows);
+    // Parse studentIDs into an array
+    const parsed = rows.map(r => ({
+      ...r,
+      studentIDs: r.studentIDs ? r.studentIDs.split(',').map(Number) : (r.studentID ? [r.studentID] : [])
+    }));
+    res.status(200).json(parsed);
   } catch (error) {
     console.error('[User] Get parents list error:', error.message);
     res.status(500).json({ error: 'Server error during parents retrieval.' });

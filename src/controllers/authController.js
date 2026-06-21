@@ -75,6 +75,17 @@ exports.getProfile = async (req, res) => {
       const [parents] = await db.query('SELECT * FROM parents WHERE userID = ?', [user.userID]);
       if (parents.length > 0) {
         profileData.parentInfo = parents[0];
+        // Fetch all linked children through junction table
+        const [children] = await db.query(`
+          SELECT s.studentID, s.name, s.class, s.gender
+          FROM parent_students ps
+          JOIN students s ON ps.studentID = s.studentID
+          WHERE ps.parentID = ?
+          ORDER BY s.name ASC
+        `, [parents[0].parentID]);
+        profileData.children = children;
+      } else {
+        profileData.children = [];
       }
     } else if (user.role === 'Teacher') {
       const [teachers] = await db.query('SELECT * FROM teachers WHERE userID = ?', [user.userID]);
